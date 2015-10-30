@@ -146,71 +146,15 @@ public class XElement extends XElementBase {
     /**
      * Parse an XML from an XML stream reader. Does not close the stream
      * @param in the XMLStreamReader object
-     * @return az XElement object
+     * @return the XElement object
      * @throws XMLStreamException on error
      */
     public static XElement parseXMLFragment(XMLStreamReader in) throws XMLStreamException {
-        XElement node = null;
-        XElement root = null;
-        final StringBuilder emptyBuilder = new StringBuilder();
-        StringBuilder b = null;
-        Deque<StringBuilder> stack = new LinkedList<>();
-
-        while (in.hasNext()) {
-            int type = in.next();
-            switch(type) {
-            case XMLStreamConstants.START_ELEMENT:
-                if (b != null) {
-                    stack.push(b);
-                    b = null;
-                } else {
-                    stack.push(emptyBuilder);
-                }
-                XElement n = new XElement(in.getName().getLocalPart());
-                n.parent = node;
-                int attCount = in.getAttributeCount();
-                if (attCount > 0) {
-                    for (int i = 0; i < attCount; i++) {
-                        n.attributes.put(in.getAttributeLocalName(i), in.getAttributeValue(i));
-                    }
-                }
-                if (node != null) {
-                    node.children.add(n);
-                }
-                node = n;
-                if (root == null) {
-                    root = n;
-                }
-                break;
-            case XMLStreamConstants.CDATA:
-            case XMLStreamConstants.CHARACTERS:
-                if (node != null && !in.isWhiteSpace()) {
-                    if (b == null) {
-                        b = new StringBuilder();
-                    }
-                    b.append(in.getText());
-                }
-                break;
-            case XMLStreamConstants.END_ELEMENT:
-                if (node != null) {
-                    if (b != null) {
-                        node.content = b.toString();
-                    }
-                    node = node.parent;
-                }
-                b = stack.pop();
-                if (b == emptyBuilder) {
-                    b = null;
-                }
-                if (stack.isEmpty()) {
-                    return root;
-                }
-                break;
-            default:
-                // ignore others.
-            }
+        if (in.hasNext()) {
+            in.next();
+            return parseXMLActiveFragment(in);
         }
-        return root;
+        return null;
     }
     /**
      * Parse an XML file compressed by GZIP.
@@ -715,6 +659,17 @@ public class XElement extends XElementBase {
         }
     }
     /**
+     * Save this XML into the supplied output stream.
+     * @param stream the output stream
+     * @param header write the header?
+     * @param flush flush after the save?
+     * @throws IOException on error
+     */
+    public void save(OutputStream stream, boolean header, boolean flush) throws IOException {
+        OutputStreamWriter out = new OutputStreamWriter(stream, "UTF-8");
+        save(out, header, flush);
+    }
+    /**
      * Save this XML into the given file.
      * @param fileName the file name
      * @throws IOException on error
@@ -728,9 +683,20 @@ public class XElement extends XElementBase {
      * @throws IOException on error
      */
     public void save(Writer writer) throws IOException {
+        save(writer, true, true);
+    }
+    /**
+     * Save this XML into the supplied output writer.
+     * @param writer the output writer
+     * @param header write the XML processing instruction as well?
+     * @throws IOException on error
+     */
+    public void save(Writer writer, boolean header, boolean flush) throws IOException {
         final PrintWriter out = new PrintWriter(new BufferedWriter(writer));
         try {
-            out.println("<?xml version='1.0' encoding='UTF-8'?>");
+            if (header) {
+                out.println("<?xml version='1.0' encoding='UTF-8'?>");
+            }
             toStringRep("", new XAppender() {
                 @Override
                 public XAppender append(Object o) {
@@ -739,7 +705,9 @@ public class XElement extends XElementBase {
                 }
             });
         } finally {
-            out.flush();
+            if (flush) {
+                out.flush();
+            }
         }
     }
     /**
@@ -841,4 +809,82 @@ public class XElement extends XElementBase {
         }
         return null;
     }
+    
+    /**
+     * Parses the stream as a fragment from the current element and returns an XElement.
+     * @param in the XML stream reader
+     * @return the parsed XElement instance
+     * @throws XMLStreamException in case there is a parsing error
+     */
+    public static XElement parseXMLActiveFragment(XMLStreamReader in) throws XMLStreamException {
+        XElement node = null;
+        XElement root = null;
+        final StringBuilder emptyBuilder = new StringBuilder();
+        StringBuilder b = null;
+        Deque<StringBuilder> stack = new LinkedList<>();
+
+        int type = in.getEventType();
+        
+        for (;;) {
+            switch(type) {
+            case XMLStreamConstants.START_ELEMENT:
+                if (b != null) {
+                    stack.push(b);
+                    b = null;
+                } else {
+                    stack.push(emptyBuilder);
+                }
+                XElement n = new XElement(in.getName().getLocalPart());
+                n.parent = node;
+                int attCount = in.getAttributeCount();
+                if (attCount > 0) {
+                    for (int i = 0; i < attCount; i++) {
+                        n.set(in.getAttributeLocalName(i), in.getAttributeValue(i));
+                    }
+                }
+                if (node != null) {
+                    node.add(n);
+                }
+                node = n;
+                if (root == null) {
+                    root = n;
+                }
+                break;
+            case XMLStreamConstants.CDATA:
+            case XMLStreamConstants.CHARACTERS:
+                if (node != null && !in.isWhiteSpace()) {
+                    if (b == null) {
+                        b = new StringBuilder();
+                    }
+                    b.append(in.getText());
+                }
+                break;
+            case XMLStreamConstants.END_ELEMENT:
+                if (node != null) {
+                    if (b != null) {
+                        node.content = b.toString();
+                    }
+                    node = node.parent;
+                }
+                b = stack.pop();
+                if (b == emptyBuilder) {
+                    b = null;
+                }
+                if (stack.isEmpty()) {
+                    return root;
+                }
+                break;
+            default:
+                // ignore others.
+            }
+            
+            if (in.hasNext()) {
+                type = in.next();
+            } else {
+                break;
+            }
+        }
+        return root;
+    }
+
 }
